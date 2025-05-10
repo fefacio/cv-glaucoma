@@ -8,3 +8,5 @@ accuracy: [np.float64(0.7415384615384616), np.float64(0.7415384615384616), np.fl
 
 ### References
 https://www.kaggle.com/datasets/arnavjain1/glaucoma-datasets?select=ORIGA
+https://stackoverflow.com/questions/50544730/how-do-i-split-a-custom-dataset-into-training-and-test-datasets/50544887#50544887
+https://discuss.pytorch.org/t/dataloader-using-subsetrandomsampler-and-weightedrandomsampler-at-the-same-time/29907/2

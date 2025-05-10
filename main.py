@@ -6,11 +6,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy.io
 from torchvision import transforms, models
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 from torchvision.models import VGG16_Weights
+from torch.utils.data.sampler import SubsetRandomSampler
 
 # Datasets
-from Datasets.origa_dataset import OrigaDataset
+from datasets.origa_dataset import OrigaDataset
+from models import vgg, resnet
+
 
 
 DATA_PATH='./data/ORIGA/'
@@ -18,37 +21,7 @@ DATA_PATH='./data/ORIGA/'
 DEVICE = 'cpu'
 
 
-def get_model():
-    model = models.vgg16(weights=VGG16_Weights.DEFAULT)
-    """
-    Os parâmetros são os pesos e os bias de todas as camadas do modelo.
-    param.requires_grad = False -> "congela" os parâmetros do modelo, impedindo
-    que eles sejam atualizados durante o treinamento pelo otimizador.
-    """
-    for param in model.parameters():
-        param.requires_grad = False
-    """
-    A saída é ajustada para ter um tamanho de (1, 1), o que significa que o
-    pooling médio global será aplicado em um tamanho de saída fixo de 1x1
-    independentemente do tamanho da entrada.
-    """
-    model.avgpool = nn.AdaptiveAvgPool2d(output_size=(1,1)) # Ajustar a saída original (7x7), por (1x1)
-    # Substituindo o Classificador original
-    model.classifier = nn.Sequential(nn.Flatten(),
-                              nn.Linear(512, 128),
-                              nn.ReLU(),
-                              # Desativa aleatoriamente 20% dos neurônios durante o treinamento
-                              nn.Dropout(0.2),
-                              # Função de ativação sigmoide aplicada à saída, transformando-a em um valor entre 0 e 1
-                              nn.Linear(128, 1),
-                              nn.Sigmoid())
-    """
-    Observe que a função de perda é uma perda BINÁRIA DE ENTROPIA CRUZADA
-    (nn.BCELoss()), pois a saída fornecida é de uma classe binária
-    """
-    loss_fn = nn.BCELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr= 1e-3)
-    return model.to(DEVICE), loss_fn, optimizer
+
 
 def train_batch(x, y, model, optimizer, loss_fn):
     model.train()
@@ -115,9 +88,12 @@ def save_image_mat():
     plt.savefig("mat_mask.png")
     plt.close()
 
+def debug_cuda():
+    print(torch.__version__)
+    print(torch.cuda.is_available())
+    print(torch.version.cuda)
+
 def main():
-    print("Hello from proj-final!")
-    
     df = pd.read_csv(DATA_PATH+'OrigaList.csv')
     
     transform_test = transforms.Compose([
@@ -128,32 +104,35 @@ def main():
     ])
 
     origa = OrigaDataset(DATA_PATH+'OrigaList.csv',
-                         DATA_PATH+'Images_Cropped',
+                         DATA_PATH+'Images',
                          transform_test)
     
-    origa.save_image_transform(0)
+    # origa.save_image_transform(0)
 
     # train_prop = 0.8
     # test_prop = 0.2
     # train_set, val_set = torch.utils.data.random_split(
     #     origa, [train_prop * len(origa), test_prop * len(origa)]
     # )
-    loader = DataLoader(origa, batch_size=32, shuffle=True)
+    # loader = DataLoader(origa, batch_size=32, shuffle=True)
 
     #print(f'Models available: {torchvision.models.list_models()}')
-    model, loss_fn, optimizer = get_model()
+    #model, loss_fn, optimizer = get_model()
 
-    train_val_loop(model, loader, optimizer, loss_fn, 2)
+    #train_val_loop(model, loader, optimizer, loss_fn, 2)
 
-    # print(type(model))
-    # print(torch.__version__)
-    # print(torch.cuda.is_available())
-    # print(torch.version.cuda)
-   
-    
+    #model, _, _ = resnet.get_resnet18()
+    labels = origa.df["Glaucoma"]
+    class_counts = np.bincount(labels)
+    class_weights = 1. / class_counts
+    sample_weights = class_weights[labels]
 
-    
-    
+    sampler = WeightedRandomSampler(weights, 32)
+
+    print(sampler)
+    print(class_weights)
+    print(class_counts)
+    print(sample_weights)
 
 
 if __name__ == "__main__":
