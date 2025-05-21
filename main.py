@@ -1,138 +1,196 @@
-import torch
-import torchvision.transforms as transforms
-import torch.nn as nn
+# Data-science
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import scipy.io
+
+# Torch
+import torch
+import torchvision.transforms as transforms
+import torch.nn as nn
 from torchvision import transforms, models
 from torch.utils.data import DataLoader, WeightedRandomSampler
 from torchvision.models import VGG16_Weights
 from torch.utils.data.sampler import SubsetRandomSampler
+from sklearn.model_selection import train_test_split
 
-# Datasets
+# Utils
+import time
+import os
+
+# Custom
 from datasets.origa_dataset import OrigaDataset
 from models import vgg, resnet
 
 
-
-DATA_PATH='./data/ORIGA/'
+# Global variables
+IMAGES_PATH='./data/Images/'
+DATA_PATH='./data/'
+RESULTS_PATH='./results/'
 # DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 DEVICE = 'cpu'
 
 
+#####################################
+# Training and validation functions #
+#####################################
+def train(model, train_loader, loss_fn, optimizer):
+  model.train()
+  epoch_losses = []
+  epoch_accuracies = []
+
+  for x, y in train_loader:
+        # Forward pass
+        prediction = model(x)
+
+        # Calculate loss
+        #y = y.squeeze().long()
+        # print(f'pred: {prediction}')
+        # print(f'y: {y}')
+        batch_loss = loss_fn(prediction, y)
+        epoch_losses.append(batch_loss.item())
+
+        # Calculate accuracy
+        is_correct = (prediction > 0.5).int() == y.int()
+        #preds = prediction.argmax(dim=1)     # predicted class
+        #is_correct = (preds == y)
+        epoch_accuracies.extend(is_correct.cpu().numpy())
+
+        # Backward pass and optimization
+        optimizer.zero_grad()
+        batch_loss.backward()
+        optimizer.step()
+
+  # Calculate mean loss and accuracy for this epoch
+  epoch_loss = np.mean(epoch_losses)
+  epoch_accuracy = np.mean(epoch_accuracies)
+
+  return epoch_loss, epoch_accuracy
 
 
-def train_batch(x, y, model, optimizer, loss_fn):
-    model.train()
-    prediction = model(x)
-    batch_loss = loss_fn(prediction, y)
-    
-    optimizer.zero_grad()          
-    batch_loss.backward()
-    optimizer.step()
-    
-    return batch_loss.item()
-
-@torch.no_grad()
-def accuracy(x, y, model):
+def evaluate(model, validation_loader, loss_fn):
     model.eval()
-    prediction = model(x)
-    is_correct = (prediction > 0.5) == y
-    return is_correct.cpu().numpy().tolist()
+    epoch_losses = []
+    epoch_accuracies = []
+
+    with torch.no_grad():
+        for x, y in validation_loader:
+            # Forward pass
+            prediction = model(x)
+
+            # y = y.squeeze().long()
+            # Calculate loss
+            val_loss = loss_fn(prediction, y)
+            epoch_losses.append(val_loss.item())
+
+            # Calculate accuracy
+            is_correct = (prediction > 0.5).int() == y.int()
+            #preds = prediction.argmax(dim=1)     # predicted class
+            #is_correct = (preds == y)
+            epoch_accuracies.extend(is_correct.cpu().numpy())
+
+    # Calculate mean loss and accuracy for validation
+    epoch_loss = np.mean(epoch_losses)
+    epoch_accuracy = np.mean(epoch_accuracies)
+
+    return epoch_loss, epoch_accuracy
 
 
-def train_val_loop(model, loader, optimizer, loss_fn, epochs):
-    print(f'Starting training and validating')
-    train_losses, train_accuracies = [], []
-    val_accuracies = []
+def train_val_loop(model, loss_fn, optimizer, train_loader, test_loader, epochs, output='0'):
+    print("Starting train-validation loop...")
+    result_csv_path = os.path.join(RESULTS_PATH, f"{output}.csv")
+    columns = [
+        'epoch', 'time', 'train_loss', 'train_acc', 'val_loss', 'val_acc'
+    ]
+    pd.DataFrame(columns=columns).to_csv(result_csv_path, index=False)
+
     for epoch in range(epochs):
-        print(f" epoch {epoch + 1}/5")
-        train_epoch_losses, train_epoch_accuracies = [], []
-        # val_epoch_accuracies = []
+        print(f"Epoch {epoch + 1}/{epochs}")
 
-        # Treinamento
-        for ix, batch in enumerate(iter(loader)):
-            x, y = batch
-            x, y = x.to(DEVICE), y.to(DEVICE)
-            batch_loss = train_batch(x, y, model, optimizer, loss_fn)
-            train_epoch_losses.append(batch_loss)
-        train_epoch_loss = np.array(train_epoch_losses).mean()
+        start = time.time()
+        # Train for one epoch
+        train_loss, train_acc = train(model, train_loader, loss_fn, optimizer)
 
-        # Validação da acurácia
-        for ix, batch in enumerate(iter(loader)):
-            x, y = batch
-            x, y = x.to(DEVICE), y.to(DEVICE)
-            is_correct = accuracy(x, y, model)
-            train_epoch_accuracies.extend(is_correct)
-        train_epoch_accuracy = np.mean(train_epoch_accuracies)
+        # Evaluate on the validation set
+        val_loss, val_acc = evaluate(model, test_loader, loss_fn)
+        end = time.time()
+        elapsed_time = end- start
 
-        # for ix, batch in enumerate(iter(val_dl)):
-        #     x, y = batch
-        #     val_is_correct = accuracy(x, y, model)
-        #     val_epoch_accuracies.extend(val_is_correct)
-        # val_epoch_accuracy = np.mean(val_epoch_accuracies)
+        # Store metrics for plotting or logging
+        result = [epoch + 1, 
+                  elapsed_time, 
+                  train_loss, 
+                  train_acc, 
+                  val_loss, 
+                  val_acc]
+        pd.DataFrame([result], columns=columns).to_csv(
+            result_csv_path, mode='a', index=False, header=False
+        )
 
-        train_losses.append(train_epoch_loss)
-        train_accuracies.append(train_epoch_accuracy)
-        # val_accuracies.append(val_epoch_accuracy)
 
-        print(f'loss: {train_losses}')
-        print(f'accuracy: {train_accuracies}')
 
-def save_image_mat():
-    mat = scipy.io.loadmat(DATA_PATH+"Semi-automatic-annotations/001.mat")
-    image = mat['mask']
-    print(f'Ground-truth size: {image.shape}')
-    plt.imshow(image)
-    plt.savefig("mat_mask.png")
-    plt.close()
-
-def debug_cuda():
-    print(torch.__version__)
-    print(torch.cuda.is_available())
-    print(torch.version.cuda)
 
 def main():
     df = pd.read_csv(DATA_PATH+'OrigaList.csv')
     
-    transform_test = transforms.Compose([
+    transform = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),  # converte de 0-255 para 0-1 e rearranja para (C, H, W)
         transforms.Normalize([0.485, 0.456, 0.406],
                             [0.229, 0.224, 0.225])
     ])
 
-    origa = OrigaDataset(DATA_PATH+'OrigaList.csv',
-                         DATA_PATH+'Images',
-                         transform_test)
+    origa = OrigaDataset(df,
+                         IMAGES_PATH,
+                         transform)
     
-    # origa.save_image_transform(0)
+    train_df, test_df = train_test_split(origa.df, 
+                                         test_size=0.2, 
+                                         stratify=origa.df['Glaucoma'], 
+                                         random_state=42)
+    
+    # Train and test datasets
+    train_df = OrigaDataset(train_df, images_path=IMAGES_PATH,
+                             transform=transform)
+    test_df = OrigaDataset(test_df, images_path=IMAGES_PATH, 
+                            transform=transform)
 
-    # train_prop = 0.8
-    # test_prop = 0.2
-    # train_set, val_set = torch.utils.data.random_split(
-    #     origa, [train_prop * len(origa), test_prop * len(origa)]
-    # )
-    # loader = DataLoader(origa, batch_size=32, shuffle=True)
 
-    #print(f'Models available: {torchvision.models.list_models()}')
-    #model, loss_fn, optimizer = get_model()
+    # DataLoaders
+    train_loader = DataLoader(train_df, batch_size=32, shuffle=True)
+    test_loader = DataLoader(test_df, batch_size=32, shuffle=False)
 
-    #train_val_loop(model, loader, optimizer, loss_fn, 2)
 
-    #model, _, _ = resnet.get_resnet18()
-    labels = origa.df["Glaucoma"]
-    class_counts = np.bincount(labels)
-    class_weights = 1. / class_counts
-    sample_weights = class_weights[labels]
+    print(train_df.df['Glaucoma'].value_counts())
+    print(test_df.df['Glaucoma'].value_counts())
+    
+    models_pipeline = {
+        "vgg16-fe": vgg.get_vgg16(),
+        "vgg16-ft3": vgg.get_vgg16_ft(3),
+        "vgg16-ft6": vgg.get_vgg16_ft(6),
+        "resnet50-fe": resnet.get_resnet50(),
+        "resnet50-ft4": resnet.get_resnet50_ft()
+    }
 
-    sampler = WeightedRandomSampler(weights, 32)
 
-    print(sampler)
-    print(class_weights)
-    print(class_counts)
-    print(sample_weights)
+    # Loop sobre os modelos do dicionário
+    MODELS_PATH = os.path.join(RESULTS_PATH, "models_trained")
+    os.makedirs(MODELS_PATH, exist_ok=True)
+
+    for model_name, (model, loss_fn, optimizer) in models_pipeline.items():
+        print(f"\n===== Treinando modelo: {model_name} =====")
+        
+        # Treina e salva métricas
+        train_val_loop(model, loss_fn, optimizer,
+                       train_loader, test_loader, epochs=10, output=model_name)
+
+        # Caminho para salvar o modelo
+        model_path = os.path.join(MODELS_PATH, f"{model_name}.pt")
+        
+        # Salva o modelo inteiro (estrutura + pesos)
+        torch.save(model, model_path)
+        
+        print(f"Modelo '{model_name}' salvo em: {model_path}")
+    
 
 
 if __name__ == "__main__":

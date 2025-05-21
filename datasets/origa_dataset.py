@@ -5,8 +5,8 @@ import matplotlib.pyplot as plt
 from PIL import Image
 
 class OrigaDataset(torch.utils.data.Dataset):
-    def __init__(self, df_path, images_path, transform = None):
-        self.df = pd.read_csv(df_path)
+    def __init__(self, df, images_path, transform = None):
+        self.df = df
         self.images_path = images_path
         self.transform = transform
         
