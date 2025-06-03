@@ -10,14 +10,13 @@ def get_vgg16():
     for param in model.parameters():
         param.requires_grad = False
     
-    model.avgpool = nn.AdaptiveAvgPool2d(output_size=(1,1)) # Ajustar a saída original (7x7), por (1x1)
-    # Substituindo o Classificador original
+    model.avgpool = nn.AdaptiveAvgPool2d(output_size=(1,1)) 
+
+    # Change final classifier
     model.classifier = nn.Sequential(nn.Flatten(),
                               nn.Linear(512, 128),
                               nn.ReLU(),
-                              # Desativa aleatoriamente 20% dos neurônios durante o treinamento
                               nn.Dropout(0.2),
-                              # Função de ativação sigmoide aplicada à saída, transformando-a em um valor entre 0 e 1
                               nn.Linear(128, 1),
                               nn.Sigmoid())
     
@@ -25,6 +24,7 @@ def get_vgg16():
     optimizer = optim.Adam(model.parameters(), lr= 1e-3)
 
     return model, loss_fn, optimizer
+
 
 def get_vgg16_ft(unfreeze_last_n_conv=0):
     model = models.vgg16(weights=VGG16_Weights.DEFAULT)
@@ -36,6 +36,7 @@ def get_vgg16_ft(unfreeze_last_n_conv=0):
     # Getting conv layers for later unfreezing
     conv_layers = [layer for layer in model.features if isinstance(layer, nn.Conv2d)]
     
+    # Unfreeze last N convolutional layers where N is specified by 'unfreeze_last_n_conv'
     if unfreeze_last_n_conv > 0:
         for layer in conv_layers[-unfreeze_last_n_conv:]:
             for param in layer.parameters():
@@ -43,6 +44,7 @@ def get_vgg16_ft(unfreeze_last_n_conv=0):
 
     model.avgpool = nn.AdaptiveAvgPool2d(output_size=(1,1)) 
     
+    # Change final classifier
     model.classifier = nn.Sequential(nn.Flatten(),
                               nn.Linear(512, 128),
                               nn.ReLU(),
@@ -50,7 +52,6 @@ def get_vgg16_ft(unfreeze_last_n_conv=0):
                               nn.Linear(128, 1),
                               nn.Sigmoid())
 
-    # Só os parâmetros com requires_grad = True vão ser otimizados
     loss_fn = nn.BCELoss()
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-3)
     
